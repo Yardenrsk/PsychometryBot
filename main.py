@@ -59,9 +59,9 @@ def eng_built(chat_id, num_samples=1, qtype="eng_com"):
     for i in range(num_samples):
         bot.send_message(chat_id, "Question:\n" + question[i] + "\n Answers:"
                                   "\n A: " + options[i][0] +
-                                  "\n B: " + options[i][0] +
-                                  "\n C: " + options[i][0] +
-                                  "\n D: " + options[i][0])
+                                  "\n B: " + options[i][1] +
+                                  "\n C: " + options[i][2] +
+                                  "\n D: " + options[i][3])
         bot.send_poll(int(chat_id),
                       type='quiz',
                       question="Choose the correct answer",
