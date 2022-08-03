@@ -23,7 +23,7 @@ class User(db.Model):
 
 '''NEW PART - END'''
 
-API_KEY = '***********************'
+API_KEY = '***********'
 bot = telebot.TeleBot(API_KEY)
 
 INITIAL_MESSAGE = "Hello! \n Welcome to the Psychometric Bot!"
@@ -57,10 +57,15 @@ def eng_built(chat_id, num_samples=1, qtype="eng_com"):
     """
     question, options, correct_option_id = get_rand_sample_info_eng_built(num_samples=num_samples, qtype=qtype)
     for i in range(num_samples):
+        bot.send_message(chat_id, "Question:\n" + question[i] + "\n Answers:"
+                                  "\n A: " + options[i][0] +
+                                  "\n B: " + options[i][0] +
+                                  "\n C: " + options[i][0] +
+                                  "\n D: " + options[i][0])
         bot.send_poll(int(chat_id),
                       type='quiz',
-                      question=question[i],
-                      options=options[i],
+                      question="Choose the correct answer",
+                      options=["A", "B", "C", "D"],
                       correct_option_id=correct_option_id[i],
                       is_anonymous=False)
 
