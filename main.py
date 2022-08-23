@@ -1,13 +1,18 @@
+import json
+
 import telebot
 from telebot import types
 import pandas as pd
 import os
 import random
-
+# from termcolor import colored
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 
-#_______________initializing the bot and DBs___________________
+import session
+from menu import MenuType, QuestionType, AmountQuestion, Unit, MenuAnswer, MenuAnswerEncoder
+
+# _______________initializing the bot and DBs___________________
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///psychometry.db'
@@ -21,9 +26,7 @@ class User(db.Model):
         return 'User ' + str(self.id)
 
 
-'''NEW PART - END'''
-
-API_KEY = '***********'
+API_KEY = '5133026966:AAHspR0E_YFM6t9U4_zx4KVBkzB9W_DF60E'
 bot = telebot.TeleBot(API_KEY)
 
 INITIAL_MESSAGE = "Hello! \n Welcome to the Psychometric Bot!"
@@ -31,6 +34,7 @@ INITIAL_MESSAGE = "Hello! \n Welcome to the Psychometric Bot!"
 xls = pd.ExcelFile(os.getcwd() + '/DB.xlsx')
 engQuestions = pd.read_excel(xls, 'engBuiltQuestions')
 engVoc = pd.read_excel(xls, 'wordVoc')
+users_sessions = {}
 
 
 @bot.poll_answer_handler(func=lambda pollAnswer: True)
@@ -45,23 +49,23 @@ def start(message):
     bot.send_message(message.chat.id, INITIAL_MESSAGE)
     main_menu(message.chat.id)
 
-#__________________English questions functions_______________________
+
+# __________________English questions functions_______________________
 
 
 def eng_built(chat_id, num_samples=1, qtype="eng_com"):
     """
     Sending English sentences completion / rephrase questions.
-
     :param chat_id: the user's chat id to send the message to.
     :param num_samples: the number of questions to send.
     """
     question, options, correct_option_id = get_rand_sample_info_eng_built(num_samples=num_samples, qtype=qtype)
     for i in range(num_samples):
-        bot.send_message(chat_id, "Question:\n" + question[i] + "\n Answers:"
-                                  "\n A: " + options[i][0] +
-                                  "\n B: " + options[i][1] +
-                                  "\n C: " + options[i][2] +
-                                  "\n D: " + options[i][3])
+        bot.send_message(chat_id, "Question:\n" + question[i] + "\n\nAnswers:" +
+                         "\n\n A: " + options[i][0] +
+                         "\n\n B: " + options[i][1] +
+                         "\n\n C: " + options[i][2] +
+                         "\n\n D: " + options[i][3])
         bot.send_poll(int(chat_id),
                       type='quiz',
                       question="Choose the correct answer",
@@ -73,13 +77,11 @@ def eng_built(chat_id, num_samples=1, qtype="eng_com"):
 def get_rand_sample_info_eng_built(num_samples=1, qtype="eng_com"):
     """
     Generating English English sentences completion / rephrase questions.
-
     :param num_samples: the number of questions to send.
     :return: the question in quiz poll format.
     """
     data = engQuestions.copy()
     data = data[data['type'] == qtype]
-
 
     samples = data.sample(n=num_samples)
     question, options, correct_option_id = [], [], []
@@ -96,7 +98,6 @@ def get_rand_sample_info_eng_built(num_samples=1, qtype="eng_com"):
 def eng_voc(chat_id, unit, num_samples=1, qtype=0):
     """
     Sending English vocabulary translation questions by unit.
-
     :param chat_id: the user's chat id to send the message to.
     :param unit: the unit which the vocabulary comes from: 0 => all units | other integer => specific unit number.
     :param num_samples: the number of questions to send.
@@ -116,7 +117,6 @@ def eng_voc(chat_id, unit, num_samples=1, qtype=0):
 def get_rand_sample_info_eng_voc(unit, num_samples=1, qtype=0):
     """
     Generating English vocabulary translation questions by unit.
-
     :param unit: the unit which the vocabulary comes from: 0 => all units | other integer => specific unit number.
     :param num_samples: the number of questions to send.
     :param qtype: the direction of translation: 0 => English to Hebrew | 1 => hebrew to english.
@@ -135,26 +135,26 @@ def get_rand_sample_info_eng_voc(unit, num_samples=1, qtype=0):
 
     valid_sample = False
     for i in range(3):
-        samples = data.sample(n=4*num_samples)
-        if samples['english'].nunique() == 4*num_samples:
+        samples = data.sample(n=4 * num_samples)
+        if samples['english'].nunique() == 4 * num_samples:
             valid_sample = True
             break
 
     if not valid_sample:
         samples = data.groupby(
-            col_names[0]).apply(lambda df: df.sample(1)).sample(n=4*num_samples)
+            col_names[0]).apply(lambda df: df.sample(1)).sample(n=4 * num_samples)
     options = samples[secondary].to_list()
-    options = [options[i:i+4] for i in range(0, len(options), 4)]
+    options = [options[i:i + 4] for i in range(0, len(options), 4)]
     correct_option_id = [random.randint(0, 3) for i in range(num_samples)]
     question = ["Choose the correct translation of the word:\n" + str(samples[main].iloc[index * 4 + i]) for index,
-                i in enumerate(correct_option_id)]
+                                                                                                             i in
+                enumerate(correct_option_id)]
     return question, options, correct_option_id
 
 
 def mix_voc(chat_id, unit, num_samples=1):
     """
     Generating a random translation direction (Hebrew->English or English->Hebrew).
-
     :param chat_id: the user's chat id to send the message to.
     :param unit: the unit which the vocabulary comes from: 0 => all units | other integer => specific unit number.
     :param num_samples: the number of questions to send.
@@ -171,7 +171,6 @@ def mix_voc(chat_id, unit, num_samples=1):
 def full_mix(chat_id, num_samples=1):
     """
     Sending random English questions: translation, sentence completion / rephrase.
-
     :param chat_id: the user's chat id to send the message to.
     :param num_samples: the number of questions to send.
     """
@@ -186,6 +185,7 @@ def full_mix(chat_id, num_samples=1):
         eng_voc(chat_id, 0, z, 1)
     if t != 0:
         eng_built(chat_id, t, "eng_rephrase")
+
 
 # _______________________________menus_________________________________
 
@@ -204,37 +204,23 @@ menus_num = {
 }
 
 
-def format_menu_callback(menu_num, pick):
-    """
-    Generating current selection in "menu_number|selection&" format in order to easily concat the
-    "user's route of selections" through the menu.
-    The user's route of selection format: "menu1|selection1&menu2|selection2&...&last_menu|last_selection".
-
-    :param menu_num: the number of the menu where the selection was made in the menus_num dictionary.
-    :param pick: the option number that was selected.
-    :return: ready to concatenation string in "menu_num|pick&" format.
-    """
-    return menu_num + '|' + str(pick) + '&'
-
-
 def main_menu(chat_id):
     """
     The main menu(1): here the user can select which subject to practice.
-
     :param chat_id: user's chat id
     """
+    # print(json.dumps(MenuAnswer(MenuType.MAIN, MenuType.ENGLISH),indent=1, cls=MenuAnswerEncoder))
     btn_1 = types.InlineKeyboardButton('אנגלית',
-                                       callback_data=format_menu_callback(
-                                           menus_num['Main'], 1))
+                                       callback_data=json.dumps(MenuAnswer(MenuType.MAIN, MenuType.ENGLISH), indent=1,
+                                                                cls=MenuAnswerEncoder))
     btn_2 = types.InlineKeyboardButton('עברית',
-                                       callback_data=format_menu_callback(
-                                           menus_num['Main'], 2))
+                                       callback_data=json.dumps(MenuAnswer(MenuType.MAIN, MenuType.HEBREW), indent=1,
+                                                                cls=MenuAnswerEncoder))
     btn_3 = types.InlineKeyboardButton('חשבון',
-                                       callback_data=format_menu_callback(
-                                           menus_num['Main'], 3))
-    btn_4 = types.InlineKeyboardButton('הכל',
-                                       callback_data=format_menu_callback(
-                                           menus_num['Main'], 4))
+                                       callback_data=json.dumps(MenuAnswer(MenuType.MAIN, MenuType.MATH), indent=1,
+                                                                cls=MenuAnswerEncoder))
+    btn_4 = types.InlineKeyboardButton('הכל', callback_data=json.dumps(MenuAnswer(MenuType.MAIN, MenuType.COMBINATION),
+                                                                       indent=1, cls=MenuAnswerEncoder))
     a = [[btn_1], [btn_2, btn_3], [btn_4]]
     buttons = types.InlineKeyboardMarkup(a)
     bot.send_message(chat_id,
@@ -242,54 +228,52 @@ def main_menu(chat_id):
                      reply_markup=buttons)
 
 
-def english_main_menu(chat_id, selection_status):
+def english_main_menu(chat_id):
     """
     English main menu(3): here the user can select which type of English questions he wants.
-
     :param chat_id: the user's chat id.
     :param selection_status: current route of selection as described above (see: format_menu_callback).
     """
-    btn_1 = types.InlineKeyboardButton(
-        'תרגום אוצר מילים',
-        callback_data=selection_status + format_menu_callback(menus_num["English"], 1))
+    btn_1 = types.InlineKeyboardButton('תרגום אוצר מילים',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.ENGLISH, MenuType.ENG_VOC),
+                                                                indent=1, cls=MenuAnswerEncoder))
 
-    btn_2 = types.InlineKeyboardButton(
-        'השלמת משפטים',
-        callback_data=selection_status + format_menu_callback(menus_num["English"], 2))
+    btn_2 = types.InlineKeyboardButton('השלמת משפטים',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.ENGLISH, QuestionType.ENG_COM),
+                                                                indent=1, cls=MenuAnswerEncoder))
 
-    btn_3 = types.InlineKeyboardButton(
-        'ערבוב תרגילים',
-        callback_data=selection_status + format_menu_callback(menus_num["English"], 3))
+    btn_3 = types.InlineKeyboardButton('ערבוב תרגילים',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.ENGLISH, QuestionType.ENG_MIX),
+                                                                indent=1, cls=MenuAnswerEncoder))
 
-    btn_4 = types.InlineKeyboardButton(
-        'unseen',
-        callback_data=selection_status + format_menu_callback(menus_num["English"], 4))
+    btn_4 = types.InlineKeyboardButton('ניסוח משפט מחדש',
+                                       callback_data=json.dumps(
+                                           MenuAnswer(MenuType.ENGLISH, QuestionType.ENG_REPHRASE), indent=1,
+                                           cls=MenuAnswerEncoder))
 
-    btn_5 = types.InlineKeyboardButton(
-        'ניסוח משפט מחדש',
-        callback_data=selection_status + format_menu_callback(menus_num["English"], 5))
-
-    a = [[btn_1], [btn_2, btn_5], [btn_4, btn_3]]
+    a = [[btn_1, btn_2], [btn_3, btn_4]]
     buttons = types.InlineKeyboardMarkup(a)
     bot.send_message(chat_id, "What do you want to do?", reply_markup=buttons)
 
 
-def english_voc_menu(chat_id, selection_status):
+def english_voc_menu(chat_id):
     """
       English vocabulary menu(7): here the user can select the language direction of translation.
-
       :param chat_id: the user's chat id.
       :param selection_status: current route of selection as described above (see: format_menu_callback).
       """
     btn_1 = types.InlineKeyboardButton(
         'תרגום אגנלית לעברית',
-        callback_data=selection_status + format_menu_callback(menus_num["EnglishVoc"], 1))
+        callback_data=json.dumps(MenuAnswer(MenuType.ENG_VOC, QuestionType.ENG_VOC_ENG), indent=1,
+                                 cls=MenuAnswerEncoder))
     btn_2 = types.InlineKeyboardButton(
         'תרגום עברית לאנגלית',
-        callback_data=selection_status + format_menu_callback(menus_num["EnglishVoc"], 2))
+        callback_data=json.dumps(MenuAnswer(MenuType.ENG_VOC, QuestionType.ENG_VOC_HEB), indent=1,
+                                 cls=MenuAnswerEncoder))
     btn_3 = types.InlineKeyboardButton(
         'תרגום אנגלית <-> עברית',
-        callback_data=selection_status + format_menu_callback(menus_num["EnglishVoc"], 3))
+        callback_data=json.dumps(MenuAnswer(MenuType.ENG_VOC, QuestionType.ENG_VOC_MIX), indent=1,
+                                 cls=MenuAnswerEncoder))
     a = [[btn_1, btn_2], [btn_3]]
     buttons = types.InlineKeyboardMarkup(a)
     bot.send_message(chat_id,
@@ -297,11 +281,9 @@ def english_voc_menu(chat_id, selection_status):
                      reply_markup=buttons)
 
 
-def unit_num_menu(chat_id, selection_status):
-    #TODO: when Math and Hebrew will be added, transform the num of units from constant to adapting through the DB.
+def unit_num_menu(chat_id):
     """
     Unit number menu(8): here the user can select from which unit in the DB the questions will be generated.
-
     :param chat_id: the user's chat id.
     :param selection_status: current route of selection as described above (see: format_menu_callback).
     """
@@ -310,18 +292,17 @@ def unit_num_menu(chat_id, selection_status):
     num_of_units = 10
     all_units_btn = types.InlineKeyboardButton(
         "הכל",
-        callback_data=selection_status +
-                      format_menu_callback(menus_num["Unit"], 0))
+        callback_data=json.dumps(MenuAnswer(MenuType.UNIT, Unit.COMBINATION), indent=1, cls=MenuAnswerEncoder))
     for i in range(num_of_units // 3):  # known that there are more than 3
         btn_1 = types.InlineKeyboardButton(3 * i + 1,
-                                           callback_data=selection_status + format_menu_callback(menus_num["Unit"],
-                                                                                                 3 * i + 1))
+                                           callback_data=json.dumps(MenuAnswer(MenuType.UNIT, Unit(str(3 * i + 1))),
+                                                                    indent=1, cls=MenuAnswerEncoder))
         btn_2 = types.InlineKeyboardButton(3 * i + 2,
-                                           callback_data=selection_status + format_menu_callback(menus_num["Unit"],
-                                                                                                 3 * i + 2))
+                                           callback_data=json.dumps(MenuAnswer(MenuType.UNIT, Unit(str(3 * i + 2))),
+                                                                    indent=1, cls=MenuAnswerEncoder))
         btn_3 = types.InlineKeyboardButton(3 * i + 3,
-                                           callback_data=selection_status + format_menu_callback(menus_num["Unit"],
-                                                                                                 3 * i + 3))
+                                           callback_data=json.dumps(MenuAnswer(MenuType.UNIT, Unit(str(3 * i + 3))),
+                                                                    indent=1, cls=MenuAnswerEncoder))
         a.append([btn_1, btn_2, btn_3])
 
     if (num_of_units % 3) == 0:
@@ -330,17 +311,20 @@ def unit_num_menu(chat_id, selection_status):
     if (num_of_units % 3) == 2:
         btn_1 = types.InlineKeyboardButton(
             num_of_units - 1,
-            callback_data=selection_status + format_menu_callback(menus_num["Unit"], num_of_units - 1))
+            callback_data=json.dumps(MenuAnswer(MenuType.UNIT, Unit(str(num_of_units - 1))), indent=1,
+                                     cls=MenuAnswerEncoder))
 
         btn_2 = types.InlineKeyboardButton(
             num_of_units,
-            callback_data=selection_status + format_menu_callback(menus_num["Unit"], num_of_units))
+            callback_data=json.dumps(MenuAnswer(MenuType.UNIT, Unit(str(num_of_units))), indent=1,
+                                     cls=MenuAnswerEncoder))
         a.append([btn_1, btn_2, all_units_btn])
 
     if (num_of_units % 3) == 1:
         btn_1 = types.InlineKeyboardButton(
             num_of_units,
-            callback_data=selection_status + format_menu_callback(menus_num["Unit"], num_of_units))
+            callback_data=json.dumps(MenuAnswer(MenuType.UNIT, Unit(str(num_of_units))), indent=1,
+                                     cls=MenuAnswerEncoder))
 
         a.append([btn_1, all_units_btn])
 
@@ -350,19 +334,21 @@ def unit_num_menu(chat_id, selection_status):
                      reply_markup=buttons)
 
 
-def amount_menu(chat_id, selection_status):
+def amount_menu(chat_id):
     """
     amount menu(9): here the user can select how many questions will be generated.
-
     :param chat_id: the user's chat id.
     :param selection_status: current route of selection as described above (see: format_menu_callback).
     """
     btn_1 = types.InlineKeyboardButton(text='1',
-                                       callback_data=selection_status + format_menu_callback(menus_num["Amount"], 1))
+                                       callback_data=json.dumps(MenuAnswer(MenuType.AMOUNT, AmountQuestion.ONE),
+                                                                indent=1, cls=MenuAnswerEncoder))
     btn_2 = types.InlineKeyboardButton(text='5',
-                                       callback_data=selection_status + format_menu_callback(menus_num["Amount"], 5))
+                                       callback_data=json.dumps(MenuAnswer(MenuType.AMOUNT, AmountQuestion.FIVE),
+                                                                indent=1, cls=MenuAnswerEncoder))
     btn_3 = types.InlineKeyboardButton(text='10',
-                                       callback_data=selection_status + format_menu_callback(menus_num["Amount"], 10))
+                                       callback_data=json.dumps(MenuAnswer(MenuType.AMOUNT, AmountQuestion.TEN),
+                                                                indent=1, cls=MenuAnswerEncoder))
     empty_button = types.InlineKeyboardButton('בהצלחה \uE404',
                                               callback_data="null")
     a = [[btn_1, btn_2, btn_3], [empty_button]]
@@ -372,113 +358,185 @@ def amount_menu(chat_id, selection_status):
                      reply_markup=buttons)
 
 
-def repeat_menu(chat_id, selection_status):
+'''
+def math_main_menu(chat_id, selection_status):
     """
-    repeat menu(2): here the user can select either to go back the to main menu or run his last selection again.
-
+    Math main menu(5): here the user can select which type of Math questions he wants.
     :param chat_id: the user's chat id.
     :param selection_status: current route of selection as described above (see: format_menu_callback).
     """
-    btn_1 = types.InlineKeyboardButton(text='תפריט', callback_data=selection_status + format_menu_callback(menus_num['Repeat'], 1))
-    btn_2 = types.InlineKeyboardButton(text='שוב פעם', callback_data=selection_status)
+    btn_1 = types.InlineKeyboardButton(
+        'אלגברה',
+        callback_data=selection_status + format_menu_callback(menus_num["Math"], 1))
+
+    btn_2 = types.InlineKeyboardButton(
+        'בעיות',
+        callback_data=selection_status + format_menu_callback(menus_num["Math"], 2))
+
+    btn_3 = types.InlineKeyboardButton(
+        'גיאומריה',
+        callback_data=selection_status + format_menu_callback(menus_num["Math"], 3))
+
+    btn_4 = types.InlineKeyboardButton(
+        'תרשימים',
+        callback_data=selection_status + format_menu_callback(menus_num["Math"], 4))
+
+    a = [[btn_1, btn_2], [btn_3, btn_4]]
+    buttons = types.InlineKeyboardMarkup(a)
+    bot.send_message(chat_id, "What do you want to do?", reply_markup=buttons)
+'''
+
+
+def repeat_menu(chat_id):
+    """
+    repeat menu(2): here the user can select either to go back the to main menu or run his last selection again.
+    :param chat_id: the user's chat id.
+    :param selection_status: current route of selection as described above (see: format_menu_callback).
+    """
+    btn_1 = types.InlineKeyboardButton(text='תפריט',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.REPEAT, MenuType.MAIN), indent=1,
+                                                                cls=MenuAnswerEncoder))
+    btn_2 = types.InlineKeyboardButton(text='שוב פעם',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.REPEAT, QuestionType.REPEAT),
+                                                                indent=1, cls=MenuAnswerEncoder))
     a = [[btn_1], [btn_2]]
     buttons = types.InlineKeyboardMarkup(a)
     bot.send_message(chat_id, "Again or Menu?", reply_markup=buttons)
 
 
-#_______________________handling user's selections (callbacks)_________________________
+# _______________________handling user's selections (callbacks)_________________________
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     """
     Catching user's action and calling the next function / menu accordingly.
-
     :param call: the user's last action
     """
-
     chat_id = call.message.chat.id
+    curr_session = users_sessions.get(chat_id)
+    if not curr_session:  # In case its an new user, adding another user to user_sessions
+        users_sessions[chat_id] = session.Session()
+        curr_session = users_sessions[chat_id]
 
-    #creating a list of all the user's selections, and keeping his last menu and selection in another
-    split_list = call.data.split("&")[:-1]
-    last_menu = split_list[-1].split("|")[0]
-    last_selection = split_list[-1].split("|")[1]
+    call_data = json.loads(call.data)
+    menu_answer = MenuAnswer.create_from_call_back(call_data)
+    make_action(menu_answer, chat_id)
+
+
+def make_action(menu_answer, chat_id):
+    """
+    Change the current session of specific user according to his menu answer
+    :param menu_answer: MenuAnswer object which represents the last answer of user
+    :param chat_id: User id
+    """
 
     # _____navigation through menus________
-    if last_menu == menus_num['Main'] and last_selection == '1':
-        english_main_menu(chat_id, call.data)
-    # if last_menu == menus_num['Main'] and last_selection == '2':
-    #     math_main_menu(chat_id,call.data)
-    # if last_menu == menus_num['Main'] and last_selection == '3':
-    #     hebrew_main_menu(chat_id,call.data)
-    # if last_menu == menus_num['Main'] and last_selection == '4':
-    #     all_main_menu(chat_id,call.data)
 
-    #repeat_menu -> main_menu
-    elif last_menu == menus_num['Repeat'] and last_selection == '1':
-        main_menu(chat_id)
+    user_session = users_sessions.get(chat_id)
+    if menu_answer.option == MenuType.ENGLISH:
+        user_session.subject = MenuType.ENGLISH
+        english_main_menu(chat_id)
 
-    #english_main_menu -> english_voc_menu
-    elif last_menu == menus_num['English'] and last_selection == '1':
-        english_voc_menu(chat_id, call.data)
+    # elif menu_answer.option == MenuType.HEBREW:
+    #     user_session.subject = MenuType.HEBREW
+    #     hebrew_main_menu(chat_id)
+    #
+    # elif menu_answer.option == MenuType.MATH:
+    #     user_session.subject = MenuType.MATH
+    #     math_main_menu(chat_id)
+    #
+    # elif menu_answer.option == MenuType.COMBINATION:
+    #     user_session.subject = MenuType.COMBINATION
+    #     combination_main_menu(chat_id)
 
-    #english_main_menu -> amount_menu (english sentence completion selected)
-    elif last_menu == menus_num['English'] and last_selection == '2':
-        amount_menu(chat_id, call.data)
 
-    #english_main_menu -> amount_menu (english mix selected)
-    elif last_menu == menus_num['English'] and last_selection == '3':
-        amount_menu(chat_id, call.data)
+    # english_main_menu -> english_voc_menu
+    elif menu_answer.option == MenuType.ENG_VOC:
+        english_voc_menu(chat_id)
 
-    # elif last_menu == menus_num['English'] and last_selection == '4': //unseen - maybe auto 1
-    #    amount_menu(chat_id,call.data)
+    # english_main_menu -> amount_menu (english sentence completion selected)
+    elif menu_answer.option == QuestionType.ENG_COM:
+        user_session.question_type = menu_answer.option
+        amount_menu(chat_id)
+
+    # english_main_menu -> amount_menu (english mix selected)
+    elif menu_answer.option == QuestionType.ENG_MIX:
+        user_session.question_type = menu_answer.option
+        amount_menu(chat_id)
 
     # english_main_menu -> amount_menu (english rephrase selected)
-    elif last_menu == menus_num['English'] and last_selection == '5':
-       amount_menu(chat_id,call.data)
+    elif menu_answer.option == QuestionType.ENG_REPHRASE:
+        user_session.question_type = menu_answer.option
+        amount_menu(chat_id)
 
-    #english_voc_menu -> unit_menu
-    elif last_menu == menus_num['EnglishVoc'] and last_selection in ('1', '2', '3'):
-        unit_num_menu(chat_id, call.data)
+    # english_voc_menu -> unit_menu
+    elif menu_answer.option in (QuestionType.ENG_VOC_HEB,QuestionType.ENG_VOC_ENG,QuestionType.ENG_VOC_MIX):
+        user_session.question_type = menu_answer.option
+        unit_num_menu(chat_id)
 
-    #unit_menu -> amount menu
-    elif last_menu == menus_num["Unit"]:
-        amount_menu(chat_id, call.data)
+    # math_menu -> amount_menu (Algebra selected)
+    elif menu_answer.option == QuestionType.MATH_ALGEBRA:
+        user_session.question_type = menu_answer.option
+        amount_menu(chat_id)
 
+    # unit_menu -> amount menu
+    elif menu_answer.menu_type == MenuType.UNIT:
+        user_session.question_unit = menu_answer.option
+        amount_menu(chat_id)
 
+    elif menu_answer.menu_type == MenuType.AMOUNT:
+        user_session.question_amount = menu_answer.option
+        call_questions(chat_id)
 
+    elif menu_answer.option == QuestionType.REPEAT:
+        call_questions(chat_id)
 
-
-    # ________calling questions functions_____________
     else:
-        n = get_menu_info(split_list, 'Amount') #the number of questions to generate
-        if menus_num["English"] + "|2" in split_list:
-            eng_built(chat_id, n, "eng_com")
+        user_session.subjet = None
+        user_session.question_type = None
+        user_session.question_unit = None
+        user_session.question_amount = None
+        main_menu(chat_id)
 
-        elif menus_num["English"] + "|3" in split_list:
-            full_mix(chat_id, n)
+# ________calling questions functions_____________
+def call_questions(chat_id):
+    user_session = users_sessions.get(chat_id)
+    if user_session.subject == None or user_session.question_type == None or user_session.question_unit == None:
+        bot.send_message(chat_id, "you didn't select a needed option,"
+                                          +" start again and be aware for not skipping any of the menus")
 
-        elif menus_num["English"] + "|5" in split_list:
-            eng_built(chat_id, n, "eng_rephrase")
+    if user_session.subject == MenuType.ENGLISH:
 
-        # unseen
+        if user_session.question_type == QuestionType.ENG_COM:
+            eng_built(chat_id, int(user_session.question_amount), "eng_com")
 
-        unit = get_menu_info(split_list, 'Unit')
-        if menus_num["EnglishVoc"] + "|1" in split_list:
-            eng_voc(chat_id, unit, n, 0)
+        elif user_session.question_type == QuestionType.ENG_MIX:
+            full_mix(chat_id, int(user_session.question_amount))
 
-        if menus_num["EnglishVoc"] + "|2" in split_list:
-            eng_voc(chat_id, unit, n, 1)
+        elif user_session.question_type == QuestionType.ENG_REPHRASE:
+            eng_built(chat_id, int(user_session.question_amount), "eng_rephrase")
 
-        if menus_num["EnglishVoc"] + "|3" in split_list:
-            mix_voc(chat_id, unit, n)
+        elif user_session.question_type == QuestionType.ENG_VOC_ENG:
+            eng_voc(chat_id,
+                    int(user_session.question_unit) if user_session.question_unit.isnumeric() else 0,
+                    int(user_session.question_amount), 0)
 
-        repeat_menu(chat_id, call.data)
+        elif user_session.question_type == QuestionType.ENG_VOC_HEB:
+            eng_voc(chat_id,
+                    int(user_session.question_unit) if user_session.question_unit.isnumeric() else 0,
+                    int(user_session.question_amount), 1)
+
+        elif user_session.question_type == QuestionType.ENG_VOC_MIX:
+            mix_voc(chat_id,
+                    int(user_session.question_unit) if user_session.question_unit.isnumeric() else 0,
+                    int(user_session.question_amount))
+
+    repeat_menu(chat_id)
 
 
 def get_menu_info(split_list, name_menu):
     '''
     returns the selection of the user in asked menu
-
     :param split_list: the list of the users selections in menus.
     :param name_menu: the asked menu.
     :return: the selection in the asked menu.
@@ -491,10 +549,11 @@ def get_menu_info(split_list, name_menu):
 
 
 @bot.message_handler()
-def recieve(message):
+def receive(message):
     """brings up the main menu if the user sends a text message"""
-
     main_menu(message.chat.id)
 
 
+
 bot.polling()
+
