@@ -1,11 +1,10 @@
 import json
-
+import tokens
 import telebot
 from telebot import types
 import pandas as pd
 import os
 import random
-# from termcolor import colored
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 
@@ -14,26 +13,16 @@ from menu import MenuType, QuestionType, AmountQuestion, Unit, MenuAnswer, MenuA
 
 # _______________initializing the bot and DBs___________________
 
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///psychometry.db'
-db = SQLAlchemy(app)
-
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-
-    def _repr_(self):
-        return 'User ' + str(self.id)
-
-
-API_KEY = '5133026966:AAHspR0E_YFM6t9U4_zx4KVBkzB9W_DF60E'
-bot = telebot.TeleBot(API_KEY)
+#Connecting to the API using environment variable (also set on the Heroku cloud)
+API_TOKEN = os.environ['API_TOKEN']
+bot = telebot.TeleBot(API_TOKEN)
 
 INITIAL_MESSAGE = "Hello! \n Welcome to the Psychometric Bot!"
 
-xls = pd.ExcelFile(os.getcwd() + '/DB.xlsx')
+xls = pd.ExcelFile(os.getcwd() + '/DATA/DB.xlsx')
 engQuestions = pd.read_excel(xls, 'engBuiltQuestions')
 engVoc = pd.read_excel(xls, 'wordVoc')
+mathQuestions = pd.read_excel(xls, 'mathBuiltQuestions')
 users_sessions = {}
 
 
@@ -62,21 +51,22 @@ def eng_built(chat_id, num_samples=1, qtype="eng_com"):
     question, options, correct_option_id = get_rand_sample_info_eng_built(num_samples=num_samples, qtype=qtype)
     for i in range(num_samples):
         bot.send_message(chat_id, "Question:\n" + question[i] + "\n\nAnswers:" +
-                         "\n\n A: " + options[i][0] +
-                         "\n\n B: " + options[i][1] +
-                         "\n\n C: " + options[i][2] +
-                         "\n\n D: " + options[i][3])
+                         "\n\n 1: " + options[i][0] +
+                         "\n\n 2: " + options[i][1] +
+                         "\n\n 3: " + options[i][2] +
+                         "\n\n 4: " + options[i][3])
         bot.send_poll(int(chat_id),
                       type='quiz',
                       question="Choose the correct answer",
-                      options=["A", "B", "C", "D"],
+                      options=["1", "2", "3", "4"],
                       correct_option_id=correct_option_id[i],
                       is_anonymous=False)
 
 
+
 def get_rand_sample_info_eng_built(num_samples=1, qtype="eng_com"):
     """
-    Generating English English sentences completion / rephrase questions.
+    Generating English sentences completion / rephrase questions.
     :param num_samples: the number of questions to send.
     :return: the question in quiz poll format.
     """
@@ -168,7 +158,7 @@ def mix_voc(chat_id, unit, num_samples=1):
         eng_voc(chat_id, unit, y, 1)
 
 
-def full_mix(chat_id, num_samples=1):
+def eng_full_mix(chat_id, num_samples=1):
     """
     Sending random English questions: translation, sentence completion / rephrase.
     :param chat_id: the user's chat id to send the message to.
@@ -186,24 +176,65 @@ def full_mix(chat_id, num_samples=1):
     if t != 0:
         eng_built(chat_id, t, "eng_rephrase")
 
+def math_built(chat_id, num_samples=1, qtype="math_alg"):
+    """
+    Sending math questions as photos.
+    :param chat_id: the user's chat id to send the message to.
+    :param num_samples: the number of questions to send.
+    """
+    question, correct_option_id = get_rand_sample_info_math_built(num_samples=num_samples, qtype=qtype)
+    for i in range(num_samples):
+        photo = open(question[i], 'rb')
+        bot.send_photo(chat_id, photo)
+        bot.send_poll(int(chat_id),
+                      type='quiz',
+                      question="Choose the correct answer",
+                      options=["1", "2", "3", "4"],
+                      correct_option_id=correct_option_id[i],
+                      is_anonymous=False)
+
+
+def get_rand_sample_info_math_built(num_samples=1, qtype="math_alg"):
+    """
+    Generating math problems/algebra/geomtery questions.
+    :param num_samples: the number of questions to send.
+    :return: the question in quiz poll format.
+    """
+    data = mathQuestions.copy()
+    data = data[data['type'] == qtype]
+
+    samples = data.sample(n=num_samples)
+    question, correct_option_id = [], []
+    for i in range(num_samples):
+        question.append(samples['question_dir'].iloc[i])
+        correct_option_id.append(samples['correct_answer'].iloc[i] - 1)
+    return question, correct_option_id
+
+def math_full_mix(chat_id, num_samples=1):
+    """
+    Sending random math questions: algebra, geometry and problems.
+    :param chat_id: the user's chat id to send the message to.
+    :param num_samples: the number of questions to send.
+    """
+    random_list = [random.randint(0, 3) for i in range(num_samples)]
+    x, y, z = random_list.count(0), random_list.count(1), random_list.count(2)
+
+    if x != 0:
+        math_built(chat_id, x, "math_alg")
+    if y != 0:
+        math_built(chat_id, x, "math_geo")
+    if z != 0:
+        math_built(chat_id, x, "math_prob")
+
+def all_full_mix(chat_id):
+    """
+    Sending random questions of all subjects (currently without hebrew).
+    :param chat_id: the user's chat id to send the message to.
+    """
+    eng_full_mix(chat_id,num_samples=10)
+    math_full_mix(chat_id, num_samples=10)
 
 # _______________________________menus_________________________________
-
-
-# menus dictionary in order to number them
-menus_num = {
-    'Main': '1',
-    'Repeat': '2',
-    'English': '3',
-    'Hebrew': '4',
-    'Math': '5',
-    'Combine': '6',
-    'EnglishVoc': '7',
-    'Unit': '8',
-    'Amount': '9'
-}
-
-
 def main_menu(chat_id):
     """
     The main menu(1): here the user can select which subject to practice.
@@ -279,6 +310,33 @@ def english_voc_menu(chat_id):
     bot.send_message(chat_id,
                      "Choose translate direction",
                      reply_markup=buttons)
+
+def math_main_menu(chat_id):
+    """
+    Math main menu(3): here the user can select which type of math questions he wants.
+    :param chat_id: the user's chat id.
+    :param selection_status: current route of selection as described above (see: format_menu_callback).
+    """
+    btn_1 = types.InlineKeyboardButton('אלגברה',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.MATH, QuestionType.MATH_ALGEBRA),
+                                                                indent=1, cls=MenuAnswerEncoder))
+
+    btn_2 = types.InlineKeyboardButton('גאומטריה',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.MATH, QuestionType.MATH_GEOMETRY),
+                                                                indent=1, cls=MenuAnswerEncoder))
+
+    btn_3 = types.InlineKeyboardButton('בעיות מילוליות',
+                                       callback_data=json.dumps(MenuAnswer(MenuType.MATH, QuestionType.MATH_PROBLEM),
+                                                                indent=1, cls=MenuAnswerEncoder))
+
+    btn_4 = types.InlineKeyboardButton('ערבוב תרגילים',
+                                       callback_data=json.dumps(
+                                           MenuAnswer(MenuType.MATH, QuestionType.MATH_MIX), indent=1,
+                                           cls=MenuAnswerEncoder))
+
+    a = [[btn_1, btn_2], [btn_3, btn_4]]
+    buttons = types.InlineKeyboardMarkup(a)
+    bot.send_message(chat_id, "What do you want to do?", reply_markup=buttons)
 
 
 def unit_num_menu(chat_id):
@@ -357,36 +415,6 @@ def amount_menu(chat_id):
                      "How many questions do you want?",
                      reply_markup=buttons)
 
-
-'''
-def math_main_menu(chat_id, selection_status):
-    """
-    Math main menu(5): here the user can select which type of Math questions he wants.
-    :param chat_id: the user's chat id.
-    :param selection_status: current route of selection as described above (see: format_menu_callback).
-    """
-    btn_1 = types.InlineKeyboardButton(
-        'אלגברה',
-        callback_data=selection_status + format_menu_callback(menus_num["Math"], 1))
-
-    btn_2 = types.InlineKeyboardButton(
-        'בעיות',
-        callback_data=selection_status + format_menu_callback(menus_num["Math"], 2))
-
-    btn_3 = types.InlineKeyboardButton(
-        'גיאומריה',
-        callback_data=selection_status + format_menu_callback(menus_num["Math"], 3))
-
-    btn_4 = types.InlineKeyboardButton(
-        'תרשימים',
-        callback_data=selection_status + format_menu_callback(menus_num["Math"], 4))
-
-    a = [[btn_1, btn_2], [btn_3, btn_4]]
-    buttons = types.InlineKeyboardMarkup(a)
-    bot.send_message(chat_id, "What do you want to do?", reply_markup=buttons)
-'''
-
-
 def repeat_menu(chat_id):
     """
     repeat menu(2): here the user can select either to go back the to main menu or run his last selection again.
@@ -437,17 +465,19 @@ def make_action(menu_answer, chat_id):
         user_session.subject = MenuType.ENGLISH
         english_main_menu(chat_id)
 
-    # elif menu_answer.option == MenuType.HEBREW:
-    #     user_session.subject = MenuType.HEBREW
-    #     hebrew_main_menu(chat_id)
-    #
-    # elif menu_answer.option == MenuType.MATH:
-    #     user_session.subject = MenuType.MATH
-    #     math_main_menu(chat_id)
-    #
-    # elif menu_answer.option == MenuType.COMBINATION:
-    #     user_session.subject = MenuType.COMBINATION
-    #     combination_main_menu(chat_id)
+    elif menu_answer.option == MenuType.HEBREW:
+        user_session.subject = MenuType.HEBREW
+        bot.send_message(chat_id,"Sorry, this options is currently unavailable. Try another option")
+        main_menu(chat_id)
+
+    elif menu_answer.option == MenuType.MATH:
+        user_session.subject = MenuType.MATH
+        math_main_menu(chat_id)
+
+    elif menu_answer.option == MenuType.COMBINATION:
+        user_session.subject = MenuType.COMBINATION
+        user_session.question_type = QuestionType.FULL_MIX
+        call_questions(chat_id)
 
 
     # english_main_menu -> english_voc_menu
@@ -474,8 +504,8 @@ def make_action(menu_answer, chat_id):
         user_session.question_type = menu_answer.option
         unit_num_menu(chat_id)
 
-    # math_menu -> amount_menu (Algebra selected)
-    elif menu_answer.option == QuestionType.MATH_ALGEBRA:
+    # math_menu -> amount_menu
+    elif menu_answer.menu_type == MenuType.MATH:
         user_session.question_type = menu_answer.option
         amount_menu(chat_id)
 
@@ -501,8 +531,8 @@ def make_action(menu_answer, chat_id):
 # ________calling questions functions_____________
 def call_questions(chat_id):
     user_session = users_sessions.get(chat_id)
-    if user_session.subject == None or user_session.question_type == None or user_session.question_unit == None:
-        bot.send_message(chat_id, "you didn't select a needed option,"
+    if user_session.subject == None or user_session.question_type == None:
+        bot.send_message(chat_id, "You didn't select a needed option,"
                                           +" start again and be aware for not skipping any of the menus")
 
     if user_session.subject == MenuType.ENGLISH:
@@ -511,7 +541,7 @@ def call_questions(chat_id):
             eng_built(chat_id, int(user_session.question_amount), "eng_com")
 
         elif user_session.question_type == QuestionType.ENG_MIX:
-            full_mix(chat_id, int(user_session.question_amount))
+            eng_full_mix(chat_id, int(user_session.question_amount))
 
         elif user_session.question_type == QuestionType.ENG_REPHRASE:
             eng_built(chat_id, int(user_session.question_amount), "eng_rephrase")
@@ -530,6 +560,20 @@ def call_questions(chat_id):
             mix_voc(chat_id,
                     int(user_session.question_unit) if user_session.question_unit.isnumeric() else 0,
                     int(user_session.question_amount))
+
+    elif user_session.subject == MenuType.MATH:
+
+        if user_session.question_type == QuestionType.MATH_ALGEBRA:
+            math_built(chat_id, int(user_session.question_amount), "math_alg")
+
+        elif user_session.question_type == QuestionType.MATH_GEOMETRY:
+            math_built(chat_id, int(user_session.question_amount), "math_geo")
+
+        elif user_session.question_type == QuestionType.MATH_PROBLEM:
+            math_built(chat_id, int(user_session.question_amount), "math_prob")
+
+    elif user_session.subject == MenuType.COMBINATION:
+        all_full_mix(chat_id)
 
     repeat_menu(chat_id)
 

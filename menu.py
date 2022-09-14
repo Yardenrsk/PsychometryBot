@@ -28,6 +28,10 @@ class QuestionType(str, enum.Enum):
     ENG_VOC_MIX = "ENG_VOC_MIX"
     ENG_MIX = "ENG_MIX"
     MATH_ALGEBRA = "MATH_ALGEBRA"
+    MATH_GEOMETRY = "MATH_GEOMETRY"
+    MATH_PROBLEM = "MATH_PROBLEM"
+    MATH_MIX = "MATH_MIX"
+    FULL_MIX = "FULL_MIX"
     REPEAT = "REPEAT"
 
 
