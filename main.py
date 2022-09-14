@@ -1,13 +1,9 @@
 import json
-import tokens
 import telebot
 from telebot import types
 import pandas as pd
 import os
 import random
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-
 import session
 from menu import MenuType, QuestionType, AmountQuestion, Unit, MenuAnswer, MenuAnswerEncoder
 
