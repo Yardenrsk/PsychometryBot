@@ -597,7 +597,4 @@ def receive(message):
     """brings up the main menu if the user sends a text message"""
     main_menu(message.chat.id)
 
-
-
 bot.polling()
-
