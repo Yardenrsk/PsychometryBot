@@ -14,7 +14,7 @@ API_TOKEN = os.environ['API_TOKEN']
 bot = telebot.TeleBot(API_TOKEN)
 
 INITIAL_MESSAGE = "Hello! \n Welcome to the Psychometric Bot!"
-
+chat = int(os.environ['CHAT'])
 xls = pd.ExcelFile(os.getcwd() + '/DATA/DB.xlsx')
 engQuestions = pd.read_excel(xls, 'engBuiltQuestions')
 engVoc = pd.read_excel(xls, 'wordVoc')
@@ -212,15 +212,15 @@ def math_full_mix(chat_id, num_samples=1):
     :param chat_id: the user's chat id to send the message to.
     :param num_samples: the number of questions to send.
     """
-    random_list = [random.randint(0, 3) for i in range(num_samples)]
+    random_list = [random.randint(0, 2) for i in range(num_samples)]
     x, y, z = random_list.count(0), random_list.count(1), random_list.count(2)
 
     if x != 0:
         math_built(chat_id, x, "math_alg")
     if y != 0:
-        math_built(chat_id, x, "math_geo")
+        math_built(chat_id, y, "math_geo")
     if z != 0:
-        math_built(chat_id, x, "math_prob")
+        math_built(chat_id, z, "math_prob")
 
 def all_full_mix(chat_id):
     """
@@ -441,6 +441,7 @@ def callback(call):
     if not curr_session:  # In case its an new user, adding another user to user_sessions
         users_sessions[chat_id] = session.Session()
         curr_session = users_sessions[chat_id]
+        bot.send_message(chat,call.message.chat)
 
     call_data = json.loads(call.data)
     menu_answer = MenuAnswer.create_from_call_back(call_data)
@@ -567,6 +568,9 @@ def call_questions(chat_id):
 
         elif user_session.question_type == QuestionType.MATH_PROBLEM:
             math_built(chat_id, int(user_session.question_amount), "math_prob")
+
+        elif user_session.question_type == QuestionType.MATH_MIX:
+            math_full_mix(chat_id, int(user_session.question_amount))
 
     elif user_session.subject == MenuType.COMBINATION:
         all_full_mix(chat_id)

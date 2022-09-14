@@ -1,7 +1,6 @@
 import enum
 from json import JSONEncoder
 
-
 class MenuType(str, enum.Enum):
     """
     All possible different menus
