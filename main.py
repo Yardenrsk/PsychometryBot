@@ -597,4 +597,4 @@ def receive(message):
     """brings up the main menu if the user sends a text message"""
     main_menu(message.chat.id)
 
-bot.polling()
+bot.infinity_polling(timeout=10, long_polling_timeout = 5)
